@@ -1,8 +1,7 @@
 import numpy as np
-# from collections import namedtuple
 
 def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
-             first_zone=1, n_zones=None, skip_zones=0, nozone=False):
+             first_zone=0, n_zones=None, skip_zones=0):
     """
     Load data from a plt file into structured numpy arrays.
 
@@ -26,17 +25,14 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
         If True, returns the loaded data as a tuple instead of a list.
         The tuple correspond to the variables in the plt file.
 
-    first_zone : int, optional (default=1)
-        TODO: Specifies the first zone in the plt file to begin loading data from.
+    first_zone : int, optional (default=0)
+        Specifies the first zone in the plt file to begin loading data from, starts with 0
 
     n_zones : int or None, optional (default=None)
-        TODO: Specifies the number of zones to load from the plt file. If None, all zones will be loaded.
+        Specifies the number of zones to load from the plt file. If None, all zones will be loaded.
 
     skip_zones : int, optional (default=0)
-        TODO: Specifies the number of zones to skip before starting to load data.
-
-    nozone : bool, optional (default=False)
-        TODO: If True, does not consider zones while loading data. All data will be loaded as a single block.
+        Specifies the number of zones to skip before loading next zone.
 
     Returns
     -------
@@ -49,9 +45,13 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
     Raises
     ------
     warnings.Warn
-        If the specified plt file does not exist.
+        - If the specified plt file does not exist.
+        - If the specified first_zone is greater than the available zones in the plt file
+        - If there are no zones available to read due to user specifications such as zone skipping or
+          specific zone loading (first_zone, n_zones, skip_zones)
+        - If variables were not found in the header of the file.
 
-        Examples
+    Examples
     --------
     Example 1: Loading multiple variables from a plt file and unpacking them into separate variables
     >>> L, E, A, Daa = pyverbplt.load_plt(filename)
@@ -59,18 +59,19 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
     In this example, data from the specified plt file is loaded into four variables: L, E, A, Daa. Each variable
     corresponds to a different variable present in the plt file.
 
-    Example 2: Loading data from the same plt file but only unpacking one variable
+    Example 2: Loading data from a plt file but only unpacking one variable Daa
     >>> _, _, _, Daa = pyverbplt.load_plt(filename)
 
-    Here, data from the plt file is again loaded, but only the last variable (Daa2) is unpacked and the rest are
+    Here, data from the plt file is again loaded, but only the last variable (Daa) is unpacked and the rest are
     ignored using underscores (_).
 
-    Example 3: Loading data from a different plt file into a single variable
-    >>> psd = pyverbplt.load_plt(filename)
+    Example 3: Loading data from a plt file into a single variable
+    >>> psd = pyverbplt.load_plt(filename, first_zone=2, n_zones=5, skip_zones=2)
 
-    In this example, data from another plt file is loaded into a single variable (psd). Since only one variable is
-    specified, it assumes that either the plt file has only one variable, or you are interested in loading
-    data as a tuple.
+    In this example, data from a plt file is loaded into a single variable (psd), specifying which zones to load using
+    the parameters first_zone, n_zones, and skip_zones. The function starts loading data from the second zone (first_zone=2),
+    loads up to five zones (n_zones=5), and skips every two zones (skip_zones=2). Since only one variable is specified,
+    it assumes that either the plt file has only one variable, or you are interested in loading data as a tuple.
     """
 
     import os
@@ -80,22 +81,40 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
         warnings.warn(f"File {filename} does not exist")
         return
 
-    print("Scanning file for number of zones")
+    print("Scanning file for the number of zones")
     zones, zone_lines, n = _scan_plt_zones(filename)
     print(f"{len(zones)} zones found")
 
-    # If there are no zones, we set the first line to be ZONE
+    # First zone in case we need to skip zones
+    zone_0 = zones[0]
+
+    # Implementing zone skipping
+    if first_zone > len(zones):
+        warnings.warn("first_zone is greater than the number of available zones")
+        return
+
+    # Adjusting the zones according to the first_zone, n_zones, and skip_zones
+    zones = zones[first_zone:]
+    zone_lines = zone_lines[first_zone:]
+
+    if n_zones is not None:
+        zones = zones[:n_zones * (skip_zones + 1):skip_zones + 1]
+        zone_lines = zone_lines[:n_zones * (skip_zones + 1):skip_zones + 1]
+    else:
+        zones = zones[::skip_zones + 1]
+        zone_lines = zone_lines[::skip_zones + 1]
+
     if len(zones) == 0:
-        zones = 0
-        zone_lines = [""]
-        # TODO: make correct conditions on the file with no zones
+        warnings.warn("No zones available to read")
         return
 
     # Read the file
+    line_counter = 0
     with open(filename, 'r') as file:
 
         # Read content until first zone
-        lines = [file.readline() for _ in range(zones[0])]
+        lines = [file.readline() for _ in range(zone_0 + 1)]
+        line_counter = zone_0 + 1
 
         # Parsing header
         comments = []
@@ -113,15 +132,18 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
                 variables = line.split('=')[1].strip().replace('"', '').split(', ')
                 continue
 
-        # TODO: Stop if variables were not found
+        # Stop if variables were not found
+        if len(variables) == 0:
+            warnings.warn("VARIABLES line not found")
+            return
 
         # Read file zone by zone
-        first_zone = False
         for z in range(len(zones)):
-            print(zone_lines[z])
+            # New line is on zone_lines
+            print(f"{z+1}/{len(zones)}: {zone_lines[z]}", end='')
 
-            if not first_zone:
-                first_zone = True
+            # Reading infor only from the first zone
+            if z == 0:
                 zone_info = zone_lines[z].replace(',', '').split(' ')
 
                 # Extract dimensions from zone info
@@ -130,24 +152,20 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
                 # Read number of lines that correspond to the product of dimensions
                 lines_number = np.prod(dimensions)
 
-                # This creates immutable object which we cannot change after it is created
-                # # Create data structure using namedtuple
-                # Plt_Variable = namedtuple('Plt_Variable', ['name', 'arr', 'size1', 'size2', 'size3', 'comment'])
-                # data = []
-                # for var in variables:
-                #     data.append(Plt_Variable(name=var, arr=np.zeros((len(zones), *dimensions)), comment=comments,
-                #                              size1=dimensions[0], size2=dimensions[1], size3=dimensions[2]))
-
                 # Create data structure using dictionary
                 data = []
                 for var in variables:
-                     data.append(dict(name=var, arr=np.zeros((len(zones), *dimensions)), comment=comments,
-                                      size1=dimensions[0], size2=dimensions[1], size3=dimensions[2]))
+                    data.append(dict(name=var, arr=np.zeros((len(zones), *dimensions)), comment=comments,
+                                     size1=dimensions[0], size2=dimensions[1], size3=dimensions[2]))
+
+            # Skip zones
+            for _ in range(zones[z] - line_counter + 1):
+                file.readline()  # Skip zone
 
             # Read data
-            file.readline()  # Skip zone
             lines = [file.readline() for _ in range(lines_number)]
             data_zone = np.loadtxt(lines)
+            line_counter = zones[z] + lines_number + 1
 
             if data_zone.ndim == 1:
                 data[0]["arr"][z, :] = data_zone.reshape(dimensions)
