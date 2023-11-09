@@ -1,4 +1,5 @@
 import numpy as np
+import re
 
 def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
              first_zone=0, n_zones=None, skip_zones=0):
@@ -129,7 +130,9 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
 
             # Reading VARIABLES line
             if 'VARIABLES' in line:
-                variables = line.split('=')[1].strip().replace('"', '').split(', ')
+                variables_line = line.split('=')[1].strip()
+                # Use regular expression to find the variables, becuase it is more relaiable
+                variables = re.findall(r'"([^"]*)"', variables_line)
                 continue
 
         # Stop if variables were not found
@@ -141,10 +144,10 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
         for z in range(len(zones)):
             # New line is on zone_lines
             print(f"{z+1}/{len(zones)}: {zone_lines[z]}", end='')
+            zone_info = zone_lines[z].replace(',', '').split()
 
-            # Reading infor only from the first zone
+            # Only from the first zone
             if z == 0:
-                zone_info = zone_lines[z].replace(',', '').split(' ')
 
                 # Extract dimensions from zone info
                 dimensions = [int(d.split('=')[1]) for d in zone_info[2:]]
@@ -156,7 +159,8 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
                 data = []
                 for var in variables:
                     data.append(dict(name=var, arr=np.zeros((len(zones), *dimensions)), comment=comments,
-                                     size1=dimensions[0], size2=dimensions[1], size3=dimensions[2]))
+                                     size1=dimensions[0], size2=dimensions[1], size3=dimensions[2],
+                                     zone=list()))
 
             # Skip zones
             for _ in range(zones[z] - line_counter + 1):
@@ -167,11 +171,15 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
             data_zone = np.loadtxt(lines)
             line_counter = zones[z] + lines_number + 1
 
+            T = zone_info[1].split('=')[1].replace('"', '')
+
             if data_zone.ndim == 1:
                 data[0]["arr"][z, :] = data_zone.reshape(dimensions)
+                data[0]["zone"].append(T)
             else:
                 for v in range(len(variables)):
                     data[v]["arr"][z, :] = data_zone[:, v].reshape(dimensions)
+                    data[v]["zone"].append(T)
 
     # Apply options
     for v in range(len(variables)):
