@@ -1,7 +1,7 @@
 import numpy as np
 import re
 
-def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
+def load_plt(filename, permute=False, squeeze=False, make3D=False, varout=True,
              first_zone=0, n_zones=None, skip_zones=0):
     """
     Load data from a plt file into structured numpy arrays.
@@ -11,7 +11,7 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
     filename : str
         The path to the plt file to be loaded.
 
-    permute : bool, optional (default=True)
+    permute : bool, optional (default=False)
         If True, permutes the array axes of the loaded data. The permutation
         sequence used is [1, 2, 3] -> [3, 2, 1].
 
@@ -158,8 +158,8 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
                 # Create data structure using dictionary
                 data = []
                 for var in variables:
-                    data.append(dict(name=var, arr=np.zeros((len(zones), *dimensions)), comment=comments,
-                                     size1=dimensions[0], size2=dimensions[1], size3=dimensions[2],
+                    data.append(dict(name=var, arr=np.zeros((len(zones), *dimensions[::-1])), comment=comments,
+                                     size1=dimensions[2], size2=dimensions[1], size3=dimensions[0],
                                      zone=list()))
 
             # Skip zones
@@ -174,11 +174,11 @@ def load_plt(filename, permute=True, squeeze=False, make3D=False, varout=True,
             T = zone_info[1].split('=')[1].replace('"', '')
 
             if data_zone.ndim == 1:
-                data[0]["arr"][z, :] = data_zone.reshape(dimensions)
+                data[0]["arr"][z, :] = data_zone.reshape(dimensions[::-1])
                 data[0]["zone"].append(T)
             else:
                 for v in range(len(variables)):
-                    data[v]["arr"][z, :] = data_zone[:, v].reshape(dimensions)
+                    data[v]["arr"][z, :] = data_zone[:, v].reshape(dimensions[::-1])
                     data[v]["zone"].append(T)
 
     # Apply options
