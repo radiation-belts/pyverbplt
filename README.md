@@ -15,7 +15,12 @@ To install pyverbplt, clone the repository:
 ```bash
 git clone https://github.com/yourusername/pyverbplt.git
 ```
-The PyPI package is comming soon.
+
+To install using PyPI:
+```bash
+pip install pyverbplt
+```
+
 
 ## Usage
 The main functionality is provided by the `load_plt` function in `pyverbplt.py`. Below are some examples of how to use this function:
