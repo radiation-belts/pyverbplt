@@ -13,7 +13,7 @@
 
 To install pyverbplt, clone the repository:
 ```bash
-git clone https://github.com/yourusername/pyverbplt.git
+git clone https://github.com/radiation-belts/pyverbplt.git
 ```
 
 To install using PyPI:
