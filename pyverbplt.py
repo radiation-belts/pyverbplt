@@ -82,9 +82,9 @@ def load_plt(filename, permute=False, squeeze=False, make3D=False, varout=True,
         warnings.warn(f"File {filename} does not exist")
         return
 
-    print("Scanning file for the number of zones")
+    #print("Scanning file for the number of zones")
     zones, zone_lines, n = _scan_plt_zones(filename)
-    print(f"{len(zones)} zones found")
+    #print(f"{len(zones)} zones found")
 
     # First zone in case we need to skip zones
     zone_0 = zones[0]
@@ -143,14 +143,16 @@ def load_plt(filename, permute=False, squeeze=False, make3D=False, varout=True,
         # Read file zone by zone
         for z in range(len(zones)):
             # New line is on zone_lines
-            print(f"{z+1}/{len(zones)}: {zone_lines[z]}", end='')
-            zone_info = zone_lines[z].replace(',', '').split()
+            #print(f"{z+1}/{len(zones)}: {zone_lines[z]}", end='')
 
             # Only from the first zone
             if z == 0:
 
                 # Extract dimensions from zone info
-                dimensions = [int(d.split('=')[1]) for d in zone_info[2:]]
+                I = int(re.search(r'I\s*=\s*(\d+)', zone_lines[z]).group(1))
+                J = int(re.search(r'J\s*=\s*(\d+)', zone_lines[z]).group(1))
+                K = int(re.search(r'K\s*=\s*(\d+)', zone_lines[z]).group(1))
+                dimensions = [I, J, K]
 
                 # Read number of lines that correspond to the product of dimensions
                 lines_number = np.prod(dimensions)
@@ -171,14 +173,31 @@ def load_plt(filename, permute=False, squeeze=False, make3D=False, varout=True,
             data_zone = np.loadtxt(lines)
             line_counter = zones[z] + lines_number + 1
 
-            T = zone_info[1].split('=')[1].replace('"', '')
+            title_match = re.search(r'T\s*=\s*"([^"]+)"', zone_lines[z])
+            T = title_match.group(1) if title_match else f"zone_{z}"
 
             if data_zone.ndim == 1:
-                data[0]["arr"][z, :] = data_zone.reshape(dimensions[::-1])
+                flat = data_zone.ravel()
+                expected_size = np.prod(dimensions)
+                if flat.size < expected_size:
+                    padded = np.full(expected_size, np.nan)
+                    padded[:flat.size] = flat
+                    flat = padded
+                elif flat.size > expected_size:
+                    flat = flat[:expected_size]
+                data[0]["arr"][z, :] = flat.reshape(dimensions[::-1])
                 data[0]["zone"].append(T)
             else:
                 for v in range(len(variables)):
-                    data[v]["arr"][z, :] = data_zone[:, v].reshape(dimensions[::-1])
+                    flat = data_zone[:, v].ravel()
+                    expected_size = np.prod(dimensions)
+                    if flat.size < expected_size:
+                        padded = np.full(expected_size, np.nan)
+                        padded[:flat.size] = flat
+                        flat = padded
+                    elif flat.size > expected_size:
+                        flat = flat[:expected_size]
+                    data[v]["arr"][z, :] = flat.reshape(dimensions[::-1])
                     data[v]["zone"].append(T)
 
     # Apply options
@@ -221,7 +240,6 @@ def _scan_plt_zones(filename):
     Note:
     - The function reads the file line by line, checking for the existence of the keyword "ZONE".
     - Line numbers are zero-based, meaning the first line is line 0.
-    - The function is case-sensitive, and will not recognize "zone" or other case variations.
 
     Example:
     >>> zones, lines, n = _scan_plt_zones('example.plt')
@@ -230,7 +248,7 @@ def _scan_plt_zones(filename):
     lines = []
     with open(filename, 'r') as file:
         for i, line in enumerate(file):
-            if "ZONE" in line:
+            if "zone" in line.lower():
                 zones.append(i)
                 lines.append(line)
 
