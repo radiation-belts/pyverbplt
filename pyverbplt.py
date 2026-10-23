@@ -167,11 +167,20 @@ def load_plt(filename, permute=False, squeeze=False, make3D=False, varout=True,
             # Skip zones
             for _ in range(zones[z] - line_counter + 1):
                 file.readline()  # Skip zone
+            line_counter = zones[z] + 1
 
             # Read data
-            lines = [file.readline() for _ in range(lines_number)]
+            # Blank lines between the zone header and the data are not counted as data
+            lines = []
+            while len(lines) < lines_number:
+                line = file.readline()
+                line_counter += 1
+                if line == '':
+                    break
+                if line.strip() == '':
+                    continue
+                lines.append(line)
             data_zone = np.loadtxt(lines)
-            line_counter = zones[z] + lines_number + 1
 
             title_match = re.search(r'T\s*=\s*"([^"]+)"', zone_lines[z])
             T = title_match.group(1) if title_match else f"zone_{z}"
