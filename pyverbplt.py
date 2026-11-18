@@ -262,3 +262,77 @@ def _scan_plt_zones(filename):
                 lines.append(line)
 
     return zones, lines, i
+
+
+def plt_to_netcdf(filename, output=None, dtype='float32', complevel=4, shuffle=True, **load_kwargs):
+    """
+    Convert a plt file to a compressed NetCDF4 file.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the plt file.
+
+    output : str, optional
+        Path of the NetCDF file. Defaults to `filename` with the extension replaced by ".nc".
+
+    dtype : str, optional (default='float32')
+        Storage type of the variables. 'float32' is accurate to ~6e-8 relative, 'float64' is lossless
+        and about twice as large.
+
+    complevel : int, optional (default=4)
+        zlib compression level (0-9).
+
+    shuffle : bool, optional (default=True)
+        Apply the HDF5 shuffle filter before compression.
+
+    **load_kwargs
+        Passed on to `load_plt` (first_zone, n_zones, skip_zones).
+
+    Returns
+    -------
+    str
+        Path of the written NetCDF file.
+
+    Notes
+    -----
+    Each plt variable is stored under a sanitized name with dimensions (zone, k, j, i), the
+    original name is kept in the `long_name` attribute. Header comments are saved as the
+    global attribute "comments" and the zone titles as the variable "zone_title".
+    """
+    import os
+    import netCDF4
+
+    data = load_plt(filename, varout=False, **load_kwargs)
+    if data is None:
+        raise ValueError(f"Could not load {filename}")
+
+    if output is None:
+        output = os.path.splitext(filename)[0] + '.nc'
+
+    n_zones, nk, nj, ni = data[0]['arr'].shape
+    with netCDF4.Dataset(output, 'w', format='NETCDF4') as nc:
+        nc.createDimension('zone', n_zones)
+        nc.createDimension('k', nk)
+        nc.createDimension('j', nj)
+        nc.createDimension('i', ni)
+        nc.comments = '\n'.join(data[0]['comment'])
+        nc.source_file = os.path.basename(filename)
+
+        titles = nc.createVariable('zone_title', str, ('zone',))
+        for z, title in enumerate(data[0]['zone']):
+            titles[z] = title
+
+        used = set()
+        for var in data:
+            name = re.sub(r'\W+', '_', var['name']).strip('_') or 'var'
+            while name in used:
+                name += '_'
+            used.add(name)
+            v = nc.createVariable(name, dtype, ('zone', 'k', 'j', 'i'), zlib=complevel > 0,
+                                  complevel=complevel if complevel > 0 else 4, shuffle=shuffle,
+                                  chunksizes=(1, nk, nj, ni) if nk * nj * ni < 2**26 else None)
+            v.long_name = var['name']
+            v[:] = var['arr']
+
+    return output
